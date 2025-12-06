@@ -103,6 +103,6 @@ app.get('/api/search', async (req, res) => {
 app.get('/', (req, res) => res.send('API up. Use /api/lessons, /api/orders, /api/search'));
 
 //Starts the server
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
 
