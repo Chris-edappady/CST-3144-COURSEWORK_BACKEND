@@ -28,8 +28,7 @@ const client = new MongoClient(uri);
 let db;
 
 // Connect to MongoDB once at startup
-client
-  .connect()
+client.connect()
   .then(() => {
     db = client.db('webstore');
     console.log('Connected to MongoDB');
@@ -46,4 +45,64 @@ app.get('/api/lessons', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch lessons' });
   }
 });
+
+//Accepts order object and saves it to 'orders' collection
+app.post('/api/orders', async (req, res) => {
+  try {
+    const order = req.body || {};
+    order.timestamp = new Date();
+    const result = await db.collection('orders').insertOne(order);
+    res.status(201).json({ success: true, orderId: result.insertedId });
+  } catch (err) {
+    console.error('Error saving order:', err);
+    res.status(500).json({ error: 'Failed to save order' });
+  }
+});
+
+//Updates the lesson attributes
+app.put('/api/lessons/:id', async (req, res) => {
+  try {
+    const lessonId = Number(req.params.id);
+    if (Number.isNaN(lessonId)) return res.status(400).json({ error: 'Invalid lesson id' });
+
+    const update = req.body || {};
+    const result = await db.collection('lessons').updateOne(
+      { id: lessonId },        
+      { $set: update }
+    );
+
+    res.json({ success: result.matchedCount === 1 && result.modifiedCount === 1 });
+  } catch (err) {
+    console.error('Error updating lesson:', err);
+    res.status(500).json({ error: 'Failed to update lesson' });
+  }
+});
+
+//Does a server-side search across subject/location/price/spaces.
+app.get('/api/search', async (req, res) => {
+  try {
+    const q = (req.query.query || '').trim();
+    if (!q) return res.json([]);  
+    const re = new RegExp(q, 'i');
+    const results = await db.collection('lessons').find({
+      $or: [
+        { subject: re },
+        { location: re },
+        { price: re },   
+        { spaces: re }
+      ]
+    }).toArray();
+    res.json(results);
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+//Confirms whether the API server is running
+app.get('/', (req, res) => res.send('API up. Use /api/lessons, /api/orders, /api/search'));
+
+//Starts the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
 
