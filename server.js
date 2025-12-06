@@ -20,4 +20,16 @@ async function connectDB() {
   } catch (err) {
     console.error('MongoDB connection error:', err);
   }
+
+// Endpoint to get the lessons 
+app.get('/api/lessons', async (req, res) => {
+  try {
+    const db = client.db('webstore');  
+    const lessons = await db.collection('lessons').find({}).toArray();
+    res.json(lessons);
+  } catch (err) {
+    console.error('Error fetching lessons:', err);
+    res.status(500).json({ error: 'Failed to fetch lessons' });
+  }
+});
 }
