@@ -2,11 +2,17 @@ const express = require('express');
 const path = require('path');
 const { MongoClient } = require('mongodb');
 
-// Initialize Express app
+//Initialize Express app
 const app = express();
 app.use(express.json());
 
-// Enable CORS for all requests
+// --- Middleware: log date & time for every request ---
+app.use((req, res, next) => {
+  console.log(`[${new Date().toLocaleString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+//Enable CORS for all requests
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -36,7 +42,7 @@ client.connect()
   .catch((err) => console.error('MongoDB connection error:', err));
 
 // Endpoint to get the lessons 
-app.get('/api/lessons', async (req, res) => {
+app.get('/lessons', async (req, res) => {
   try {  
     const lessons = await db.collection('lessons').find({}).toArray();
     res.json(lessons);
@@ -47,11 +53,56 @@ app.get('/api/lessons', async (req, res) => {
 });
 
 //Accepts order object and saves it to 'orders' collection
-app.post('/api/orders', async (req, res) => {
+app.post('/orders', async (req, res) => {
   try {
-    const order = req.body || {};
-    order.timestamp = new Date();
-    const result = await db.collection('orders').insertOne(order);
+    const { name, phone, cart } = req.body || {};
+    if (!name || !phone || !Array.isArray(cart) || cart.length === 0) {
+      return res.status(400).json({ error: 'Invalid order data' });
+    }
+
+    // Count quantity per lesson ID
+    const quantities = {};
+    cart.forEach(id => {
+      quantities[id] = (quantities[id] || 0) + 1;
+    });
+
+    const items = [];
+    let totalPrice = 0;
+    
+    // For each lesson in cart
+    for (const lessonId of Object.keys(quantities)) {
+      const lesson = await db.collection('lessons').findOne({ id: Number(lessonId) });
+      if (!lesson) continue;
+
+      const qty = quantities[lessonId];
+
+      // Deduct spaces in MongoDB
+      const remaining = Math.max(0, lesson.spaces - qty);
+      await db.collection('lessons').updateOne(
+        { id: Number(lessonId) },
+        { $set: { spaces: remaining } }
+      );
+
+      // Prepare order item
+      items.push({
+        lessonId: lessonId,
+        name: lesson.subject,
+        price: lesson.price,
+        quantity: qty
+      });
+      totalPrice += lesson.price * qty;
+    }
+    // Save order
+    const orderDoc = {
+      name,
+      phone,
+      items,
+      totalPrice,
+      date: new Date()
+    };
+
+    const result = await db.collection('orders').insertOne(orderDoc);
+
     res.status(201).json({ success: true, orderId: result.insertedId });
   } catch (err) {
     console.error('Error saving order:', err);
@@ -60,7 +111,7 @@ app.post('/api/orders', async (req, res) => {
 });
 
 //Updates the lesson attributes
-app.put('/api/lessons/:id', async (req, res) => {
+app.put('/lessons/:id', async (req, res) => {
   try {
     const lessonId = Number(req.params.id);
     if (Number.isNaN(lessonId)) return res.status(400).json({ error: 'Invalid lesson id' });
@@ -71,7 +122,7 @@ app.put('/api/lessons/:id', async (req, res) => {
       { $set: update }
     );
 
-    res.json({ success: result.matchedCount === 1 && result.modifiedCount === 1 });
+    res.json({ success: result.matchedCount > 0 });
   } catch (err) {
     console.error('Error updating lesson:', err);
     res.status(500).json({ error: 'Failed to update lesson' });
@@ -79,7 +130,7 @@ app.put('/api/lessons/:id', async (req, res) => {
 });
 
 //Does a server-side search across subject/location/price/spaces.
-app.get('/api/search', async (req, res) => {
+app.get('/search', async (req, res) => {
   try {
     const q = (req.query.query || '').trim();
     if (!q) return res.json([]);  
@@ -99,8 +150,8 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-//Confirms whether the API server is running
-app.get('/', (req, res) => res.send('API up. Use /api/lessons, /api/orders, /api/search'));
+//Confirms whether the server is running
+app.get('/', (req, res) => res.send('Server running. Use /lessons, /orders, /search'));
 
 //Starts the server
 const PORT = 3000;
